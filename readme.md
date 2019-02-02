@@ -10,9 +10,9 @@ This code is simply an example of our simulated power analysis and is not an att
 
 ## Web friendly version of the example
 
-Github's default rendering of html files is to show you the source-code, by clicking the following link you can see our example rendered in a web-friendly version, <http://htmlpreview.github.io/?https://github.com/hollina/health_insurance_and_mortality/blob/master/state_level_public_data_example/scripts/markdown/simple_power_example_markdown.html>.
+[Github's default rendering of html files is to show you the source-code, by clicking this link you can see our example rendered in a web-friendly version]<http://htmlpreview.github.io/?https://github.com/hollina/health_insurance_and_mortality/blob/master/state_level_public_data_example/scripts/markdown/simple_power_example_markdown.html>.
 
-This html file was created directly from stata using the markstat package created by Germán Rodríguez, <https://data.princeton.edu/stata/markdown/gettingStarted>.
+This html file was created directly from stata using the [markstat package created by Germán Rodríguez]<https://data.princeton.edu/stata/markdown/gettingStarted>.
 
 ## Stata friendly version of the example
-You can find a stata do file that runs the same code here, <https://github.com/hollina/health_insurance_and_mortality/blob/master/state_level_public_data_example/scripts/simple_power_example.do>.
+[You can find a stata do file that runs the same code as in our example here]<https://github.com/hollina/health_insurance_and_mortality/blob/master/state_level_public_data_example/scripts/simple_power_example.do>.
