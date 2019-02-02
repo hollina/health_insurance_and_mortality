@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+<style>
+/* CSS for Markstat 2.0 using Pandoc 2.0 */
+body{padding:14px 28px;}
+body, table {font-family: Helvetica, Arial, Sans-serif; font-size: 14px;}
+h1, h2, h3, h4 {font-weight: normal; color: #3366cc}
+h1 {font-size: 200%;}
+h2 {font-size: 150%;}
+h3 {font-size: 120%;}
+h4 {font-size: 100%; font-weight:bold}
+img.center {display:block; margin-left:auto; margin-right:auto}
+.small{font-size:8pt;}
+a {color: black;}
+a:visited {color: #808080;}
+a.plain {text-decoration:none;}
+a.plain:hover {text-decoration:underline;}
+.em {font-weight:bold;}
+pre, code {font-family: "lucida console", monospace;}
+pre.stata {font-size:13px; line-height:13px;}
+pre {padding:8px; border:1px solid #c0c0c0; border-radius:8px; background-color:#fdfdfd;}
+code {color:#3366cc; background-color:#fafafa;}
+pre code { color:black; background-color:white}
+/* Added for Pandoc */
+figure > img, div.figure > img {display:block; margin:auto}
+figcaption, p.caption {text-align:center; font-weight:bold; color:#3366cc;}
+h1.title {text-align:center; margin-bottom:0}
+p.author, h2.author {font-style:italic; text-align:center;margin-top:4px;margin-bottom:0}
+p.date, h3.date {text-align:center;margin-top:4px; margin-bottom:0}
+/* Tables*/
+table { margin:auto; border-collapse:collapse; }
+table caption { margin-bottom:1ex;}
+th, td { padding:4px 6px;}
+thead tr:first-child th {border-top:1px solid black; padding-top:6px}
+thead tr:last-child  th {padding-bottom:6px}
+tbody tr:first-child td {border-top:1px solid black; padding-top:6px}
+tbody tr:last-child  td {padding-bottom:6px;}
+table tbody:last-child tr:last-child td {border-bottom:1px solid black;}
+</style>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Alex Hollingsworth" />
+  <meta name="dcterms.date" content="2019-01-03" />
+  <title>Example Simulated Power Analysis from Black, Hollingsworth, Nunes, and Simon (2019)</title>
+  <style type="text/css">
+      code{white-space: pre-wrap;}
+      span.smallcaps{font-variant: small-caps;}
+      span.underline{text-decoration: underline;}
+      div.column{display: inline-block; vertical-align: top; width: 50%;}
+  </style>
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header>
+<h1 class="title">Example Simulated Power Analysis from Black, Hollingsworth, Nunes, and Simon (2019)</h1>
+<p class="author">Alex Hollingsworth</p>
+<p class="date">3 January 2019</p>
+</header>
+<p>This is an example of the type of simulated power analysis done in Black et al. (2019). This example is done with publicly available data. You can find the code, data, and output for this example hosted on Alex’s GitHub page <a href="https://github.com/hollina/health_insurance_and_mortality" class="uri">https://github.com/hollina/health_insurance_and_mortality</a>.</p>
+<p>This set-up is designed to mimic a typical DiD setting. Here we will compare 23 randomly chosen treated states to 18 randomly chosen control states. We will impose a series of treatment effects that gradually increase in magnitude and report whether or not these imposed treatment effects are detectable. We will vary the set of randomly chosen treated states. We will calculate the minimum detectable effect size at various power and significance levels. We will also explore a measure of believability, which is based upon Gelman and Carlin (2014) measures of sign and magnitude error.</p>
+<p>In this simple design we used 5 years of pre-expansion data and 3 years of post-expansion data. Both state and year fixed-effects are included. Regressions are weighted by state-population and standard errors will be clustered at the state-level. The dependent variable will be the natural log of the all-cause non-elderly mortality rate per 100,000.</p>
+</p>This code is simply an example of our simulated power analysis and is not an attempt to identify the impact of Medicaid expansion on mortality. Importantly, changing the research design (e.g. adding control variables, shifting to the county-level, changing the cause of death, using propensity score weights, or using a synthetic control estimator) will impact power.  Our approach could be easily modified to accommodate any of these alternative research designs. Any improvements to the research design will very likely increase power and decrease the minimum detectable effect size.</p>
+<h1 id="initial-set-up">Initial Set-up</h1>
+<p>Here we will set-up the power analysis and choose various required parameters/options.</p>
+<p>First we clear the memory</p>
+<pre class='stata'>. clear all
+</pre>
+<p>Choose the number of datasets we want to compose each estimate. For example, if we choose 2, then two sets of psuedo-treated states will be drawn and the power analysis will be conducted twice for each effect size; once for each set of pseudo-treated states and effect size pair.</p>
+<pre class='stata'>. local max_dataset_number  = 1000
+</pre>
+<p>Pick the number of psuedo-post-expansion years</p>
+<pre class='stata'>. local number_post_years = 3
+
+. local last_year = 2013-`number_post_years'+1
+</pre>
+<p>Set number of psuedo-pre-expansion years</p>
+<pre class='stata'>. local number_pre_years = 5
+
+. local first_year = `last_year'-`number_pre_years'
+</pre>
+<p>Set effect size step and max value in percent terms (0-1)</p>
+<pre class='stata'>. local step_size = .0025 // Quarter of a percent
+
+. local end_value = .05 // End at 5%
+</pre>
+<p>Create a local macro from the choices above</p>
+<pre class='stata'>. local step_macro 
+
+. forvalues x = 0(`step_size')`end_value' {
+  2.     local step_macro `step_macro'  `x'
+  3. }
+</pre>
+<p>Determine the length of the macro above, so percent complete can be displayed later</p>
+<pre class='stata'>. local num :  word count `step_macro'
+
+. local num = `num'
+</pre>
+<p>Calculate the max number of rows so percent complete can be displayed later</p>
+<pre class='stata'>. local max_row = `max_dataset_number'*`num'
+</pre>
+<p>Create excel sheet to store results from simulation. Note: I have $dropbox set via my profile.do to point to my Dropbox folder.</p>
+<pre class='stata'>. putexcel set "$dropbox/health_insurance_and_mortality/state_level_public_dat
+> a_example/output/power_simulation_results.xlsx", replace
+</pre>
+<p>Initialize cells names in excel sheet</p>
+<pre class='stata'>. putexcel A1 = ("dependent_variable")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel B1 = ("controls")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel C1 = ("weight")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel D1 = ("treated_states")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel E1 = ("effect_size")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+</pre>
+<pre class='stata'>. putexcel F1 = ("deaths_reduced_per_year")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel G1 = ("total_deaths_reduced")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+</pre>
+<pre class='stata'>. putexcel H1 = ("coef")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel I1 = ("se")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+
+. putexcel J1 = ("df")
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/output/power_simulation_results.xlsx saved
+</pre>
+<h1 id="import-and-clean-mortality-data">Import and clean mortality data</h1>
+<p>Import data extracted from <a href="https://wonder.cdc.gov/">CDC wonder</a>. All cause mortality 0-64 by state and year. The data were gathered on 1 January 2019.</p>
+<pre class='stata'>. import delimited "$dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/data/Multiple Cause of Death, 1999-2017.txt"
+(8 vars, 1,077 obs)
+</pre>
+<p>Drop total variables</p>
+<pre class='stata'>. drop if missing(year)
+(108 observations deleted)
+</pre>
+<p>Drop unneeded variables from CDC Wonder</p>
+<pre class='stata'>. drop notes
+</pre>
+<p>Drop years after expansion</p>
+<pre class='stata'>. drop if year>=2014
+(204 observations deleted)
+</pre>
+<p>Drop if year before first desired year</p>
+<pre class='stata'>. drop if year&lt;`first_year'
+(357 observations deleted)
+</pre>
+<p>Change state name to be state postal code</p>
+<pre class='stata'>. replace state ="AL" if state=="Alabama"
+(8 real changes made)
+
+. replace state ="AK" if state=="Alaska"
+(8 real changes made)
+
+. replace state ="AZ" if state=="Arizona"
+(8 real changes made)
+
+. replace state ="AR" if state=="Arkansas"
+(8 real changes made)
+
+. replace state ="CA" if state=="California"
+(8 real changes made)
+
+. replace state ="CO" if state=="Colorado"
+(8 real changes made)
+
+. replace state ="CT" if state=="Connecticu "
+(0 real changes made)
+
+. replace state ="DE" if state=="Delaware"
+(8 real changes made)
+
+. replace state ="DC" if state=="District of Columbia"
+(8 real changes made)
+
+. replace state ="FL" if state=="Florida"
+(8 real changes made)
+
+. replace state ="GA" if state=="Georgia"
+(8 real changes made)
+
+. replace state ="HI" if state=="Hawaii"
+(8 real changes made)
+
+. replace state ="ID" if state=="Idaho"
+(8 real changes made)
+
+. replace state ="IL" if state=="Illinois"
+(8 real changes made)
+
+. replace state ="IN" if state=="Indiana"
+(8 real changes made)
+
+. replace state ="IA" if state=="Iowa"
+(8 real changes made)
+
+. replace state ="KS" if state=="Kansas"
+(8 real changes made)
+
+. replace state ="KY" if state=="Kentucky"
+(8 real changes made)
+
+. replace state ="LA" if state=="Louisiana"
+(8 real changes made)
+
+. replace state ="ME" if state=="Maine"
+(8 real changes made)
+
+. replace state ="MD" if state=="Maryland"
+(8 real changes made)
+
+. replace state ="MA" if state=="Massachusetts"
+(8 real changes made)
+
+. replace state ="MI" if state=="Michigan"
+(8 real changes made)
+
+. replace state ="MN" if state=="Minnesota"
+(8 real changes made)
+
+. replace state ="MS" if state=="Mississippi"
+(8 real changes made)
+
+. replace state ="MO" if state=="Missouri"
+(8 real changes made)
+
+. replace state ="MT" if state=="Montana"
+(8 real changes made)
+
+. replace state ="NE" if state=="Nebraska"
+(8 real changes made)
+
+. replace state ="NV" if state=="Nevada"
+(8 real changes made)
+
+. replace state ="NH" if state=="New Hampshire"
+(8 real changes made)
+
+. replace state ="NJ" if state=="New Jersey"
+(8 real changes made)
+
+. replace state ="NM" if state=="New Mexico"
+(8 real changes made)
+
+. replace state ="NY" if state=="New York"
+(8 real changes made)
+
+. replace state ="NC" if state=="North Carolina"
+(8 real changes made)
+
+. replace state ="ND" if state=="North Dakota"
+(8 real changes made)
+
+. replace state ="OH" if state=="Ohio"
+(8 real changes made)
+
+. replace state ="OK" if state=="Oklahoma"
+(8 real changes made)
+
+. replace state ="OR" if state=="Oregon"
+(8 real changes made)
+
+. replace state ="PA" if state=="Pennsylvania"
+(8 real changes made)
+
+. replace state ="RI" if state=="Rhode Island"
+(8 real changes made)
+
+. replace state ="SC" if state=="South Carolina"
+(8 real changes made)
+
+. replace state ="SD" if state=="South Dakota"
+(8 real changes made)
+
+. replace state ="TN" if state=="Tennessee"
+(8 real changes made)
+
+. replace state ="TX" if state=="Texas"
+(8 real changes made)
+
+. replace state ="UT" if state=="Utah"
+(8 real changes made)
+
+. replace state ="VT" if state=="Vermont"
+(8 real changes made)
+
+. replace state ="VA" if state=="Virginia"
+(8 real changes made)
+
+. replace state ="WA" if state=="Washington"
+(8 real changes made)
+
+. replace state ="WV" if state=="West Virginia"
+(8 real changes made)
+
+. replace state ="WI" if state=="Wisconsin"
+(8 real changes made)
+
+. replace state ="WY" if state=="Wyoming"
+(8 real changes made)
+</pre>
+<p>Add expansion status to each state</p>
+<pre class='stata'>. gen expansion4=0
+
+. label define expansion4 0 "0. Non-expansion" 1 "1. Full expansion" ///
+>     2 "2. Mild expansion" 3 "3. Substantial expansion" 
+
+. label values expansion4 expansion4
+</pre>
+<pre class='stata'>. local full AZ AR CO IL IA KY MD NV NM NJ ND OH OR RI WV  WA
+
+. foreach x in `full' {
+  2.     replace expansion4=1 if state=="`x'"
+  3. }     
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+
+. local mild DE DC MA NY VT
+
+. foreach x in `mild' {
+  2.     replace expansion4=2 if state=="`x'"
+  3. }
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+
+. local medium CA CT HI MN WI
+
+. foreach x in `medium' {
+  2.     replace expansion4=3 if state=="`x'"
+  3. }
+(8 real changes made)
+(0 real changes made)
+(8 real changes made)
+(8 real changes made)
+(8 real changes made)
+</pre>
+<p>Account for mid-year expansions</p>
+<pre class='stata'>. replace expansion4=1 if state=="MI"  //MI expanded in April 2014
+(8 real changes made)
+
+. replace expansion4=1 if state=="NH"  //NH expanded in August 2014
+(8 real changes made)
+
+. replace expansion4=1 if state=="PA"  //PA expanded in Jan 2015
+(8 real changes made)
+
+. replace expansion4=1 if state=="IN"  //IN expanded in Feb 2015
+(8 real changes made)
+
+. replace expansion4=1 if state=="AK"  //AK expanded in Sept 2015
+(8 real changes made)
+
+. replace expansion4=1 if state=="MT"  //MT expanded in Jan 2016
+(8 real changes made)
+
+. replace expansion4=1 if state=="LA"  //LA expanded in July 2016
+(8 real changes made)
+</pre>
+<p>Keep only full or non-expansion states</p>
+<pre class='stata'>. drop if expansion4==2 | expansion4==3
+(72 observations deleted)
+</pre>
+<p>Store number of expansion states</p>
+<pre class='stata'>. distinct statecode  if expansion4==1 
+
+           │        Observations
+           │      total   distinct
+───────────┼──────────────────────
+ statecode │        184         23
+
+. scalar number_expand = r(ndistinct)    
+</pre>
+<h1 id="save-data-to-be-called-in-power-analysis">Save data to be called in power analysis</h1>
+<p>Save temporary dataset to be called</p>
+<pre class='stata'>. compress
+  variable expansion4 was float now byte
+  variable population was double now long
+  variable state was str20 now str11
+  (5,376 bytes saved)
+
+. save "$dropbox/health_insurance_and_mortality/state_level_public_data_exampl
+> e/temp/temp_data.dta", replace
+(note: file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level
+> _public_data_example/temp/temp_data.dta not found)
+file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/temp/temp_data.dta saved
+</pre>
+<h1 id="run-simulated-power-analysis">Run simulated power analysis</h1>
+<p>Start a timer to show how long this takes</p>
+<pre class='stata'>. timer on 1
+</pre>
+<p>Set row number for excel sheet</p>
+<pre class='stata'>. local row =2 
+</pre>
+<p>Run a loop. Performing the power analysis once for each of the desired number of datasets. The following output is supressed for the html document even though it runs. This is to ensure the document is not too long.</p>
+<pre class='stata'>. forvalues dataset_number = 1(1)`max_dataset_number'    {
+  2.     // Display the dataset number
+.     qui di "`dataset_number'"
+</pre>
+<pre class='stata'>.     // Open main dataset for analysis
+.     qui use "$dropbox/health_insurance_and_mortality/state_level_public_data
+> _example/temp/temp_data.dta", clear
+</pre>
+<pre class='stata'>.     // Set seed for reproducibility. We want the seed to be the same within 
+> a dataset. 
+.     qui local rand_seed = 1234 + `dataset_number'
+  5.     qui set seed   `rand_seed'
+</pre>
+<pre class='stata'>.     ////////////////////////////////////////////////////////////////////////
+> ///////            
+>     // Generate a random variable for each state, then the first N in rank w
+> ill be 
+.     // considered expansion states. Where N is # of expansion states
+.     qui bysort statecode: gen random_variable = runiform() if _n==1
+  7.     qui bysort statecode: carryforward random_variable, replace
+</pre>
+<pre class='stata'>.     // Rank the states
+.     qui egen rank = group(random_variable)
+</pre>
+<pre class='stata'>.     // Given this random ordering of states, assign expansion status to the 
+> # set above
+.     qui gen expansion = 0 
+ 10.     qui replace expansion=1 if rank &lt;=number_expand
+</pre>
+<pre class='stata'>.     // Do this same thing for the treatment variable
+.     qui gen treatment = 0 
+ 12.     qui replace treatment = 1 if expansion==1 &amp; year>=`last_year' 
+</pre>
+<pre class='stata'>.     // Create Post variable
+.     qui gen post = 0
+ 14.     qui replace post =1 if year>=`last_year' 
+</pre>
+<pre class='stata'>.     // Store basic data from regression in excel sheet
+.     qui putexcel A`row' = ("all_deaths")
+ 16.     qui putexcel B`row' = ("no controls")
+ 17.     qui putexcel C`row' = ("population")
+</pre>
+<pre class='stata'>.     // Add list of states to excel sheet
+.     qui capture drop test
+ 19.     qui gen test = ""
+</pre>
+<pre class='stata'>.     qui levelsof state if treatment ==1, local(treated_states)
+ 21.     foreach x in `treated_states' {
+ 22.         qui replace test = test + ", " + "`x'"
+ 23.     }
+</pre>
+<pre class='stata'>.     qui local state_list `=test[1]'
+ 25.     qui putexcel D`row' = ("`state_list'")
+</pre>
+<pre class='stata'>.     // Generate a death rate with no effect
+.     qui gen death_rate = (deaths/population)*100000
+</pre>
+<pre class='stata'>.     // Gen order variable 
+.     qui gen order = _n
+</pre>
+<pre class='stata'>.     ////////////////////////////////////////////////////////////////////////
+> /////
+>     // Create a reduced deaths variable by a given percentage using the bino
+> mial for each effect size
+.     qui local counter = 1
+</pre>
+<pre class='stata'>.     foreach x in `step_macro' {
+ 30.         qui gen reduced_deaths_`counter' = 0 
+ 31.         qui replace reduced_deaths_`counter' = rbinomial(deaths,`x') if t
+> reatment==1
+ 32.         qui replace reduced_deaths_`counter'=0 if missing(reduced_deaths_
+> `counter')
+</pre>
+<pre class='stata'>.         qui gen deaths_`counter' = deaths - reduced_deaths_`counter'
+ 34.         qui replace deaths_`counter'=0 if missing(deaths_`counter')
+</pre>
+<pre class='stata'>.         qui gen death_rate_`counter'= ln((deaths_`counter'/population)*10000
+> 0+1)
+</pre>
+<pre class='stata'>.         // Store the effect size in excel sheet
+.         qui putexcel E`row' = (`x')
+</pre>
+<pre class='stata'>.         // Store the number of reduced deaths in excel sheet
+.         qui sum reduced_deaths_`counter' if year>=`last_year'
+ 38.         qui putexcel F`row' = (`r(sum)'/`number_post_years')
+ 39.         qui putexcel G`row' = (`r(sum)')
+</pre>
+<pre class='stata'>.         // Move the row and counter one forward
+.         qui local counter = `counter' + 1 
+ 41.         qui local row = `row' + 1
+ 42.     }    
+</pre>
+<pre class='stata'>.     // Move the row counter back to the top
+.     qui local row = `row' - `num' 
+</pre>
+<pre class='stata'>.     ////////////////////////////////////////////////////////////////////////
+> /////
+>     // Run regression of treatment on reduced deaths variable for each effec
+> t size
+</pre>
+<pre class='stata'>.     // Reset the counter
+.     qui local counter = 1
+</pre>
+<pre class='stata'>.     forvalues counter = 1(1)`num' {
+</pre>
+<pre class='stata'>.         qui reghdfe death_rate_`counter' ///
+>             treatment ///
+>             i.post i.expansion ///
+>             [aweight=population] ///
+>             ,  absorb(statecode year)  vce(cluster statecode) 
+</pre>
+<pre class='stata'>.         // Store results
+.         qui putexcel H`row' =(_b[treatment])
+ 48.         qui putexcel I`row' = (_se[treatment])
+ 49.         qui putexcel J`row' =(`e(df_r)')
+</pre>
+<pre class='stata'>.         // Display Percent Complete
+.         qui di "////////////////////////////////////////////////////////////
+> ///////////"
+ 51.         qui di "///////////////////////////Percent Complete//////////////
+> /////////////"
+ 52.         qui di ((`row'-1)/`max_row')*100
+ 53.         qui di "/////////////////////////////////////////////////////////
+> //////////////"
+</pre>
+<pre class='stata'>.         qui local row = `row' + 1
+ 55.         qui local counter = `counter' + 1
+ 56.     }
+ 57. }
+</pre>
+<p>Stop timer</p>
+<pre class='stata'>. timer off 1
+
+. timer list
+   1:  79905.50 /        1 =   79905.5020
+</pre>
+<p>Erase temporary dataset used for analysis</p>
+<pre class='stata'>. erase "$dropbox/health_insurance_and_mortality/state_level_public_data_examp
+> le/temp/temp_data.dta"
+</pre>
+<h1 id="import-and-clean-results-from-simulated-power-analysis">Import and clean results from simulated power analysis</h1>
+<p>Import simulation results</p>
+<pre class='stata'>. import excel "$dropbox/health_insurance_and_mortality/state_level_public_dat
+> a_example/output/power_simulation_results.xlsx", sheet("Sheet1") firstrow cl
+> ear    
+</pre>
+<p>Calculate z-scores and p-values</p>
+<pre class='stata'>. gen z_score = abs(((coef - 0)/se))
+
+. gen p_value =  2*ttail(df,z_score)
+</pre>
+<p>Calculate indicator for power threshold for each observation</p>
+<pre class='stata'>. gen power_10 = 0
+
+. gen power_05 = 0
+
+. gen power_01 = 0
+
+. gen power_001 = 0
+</pre>
+<pre class='stata'>. replace power_10 =  1 if p_value&lt;= .1
+(12,536 real changes made)
+
+. replace power_05 =  1 if p_value&lt;= .05
+(11,065 real changes made)
+
+. replace power_01 =  1 if p_value&lt;= .01
+(8,209 real changes made)
+
+. replace power_001 = 1 if p_value&lt;= .001
+(4,872 real changes made)
+</pre>
+<p>Calculate a count variable</p>
+<pre class='stata'>. gen count = 1
+</pre>
+<p>Make sign error</p>
+<pre class='stata'>. gen s_error_10 = 0
+
+. replace s_error_10 =1 if power_10==1 &amp; coef>=0
+(174 real changes made)
+
+. gen s_error_05 = 0
+
+. replace s_error_05 =1 if power_05==1 &amp; coef>=0
+(85 real changes made)
+
+. gen s_error_01 = 0
+
+. replace s_error_01 =1 if power_01==1 &amp; coef>=0
+(17 real changes made)
+
+. gen s_error_001 = 0
+
+. replace s_error_001 =1 if power_001==1 &amp; coef>=0
+(0 real changes made)
+</pre>
+<pre class='stata'>. replace s_error_10 =. if effect_size==0
+(1,000 real changes made, 1,000 to missing)
+
+. replace s_error_05 =. if effect_size==0
+(1,000 real changes made, 1,000 to missing)
+
+. replace s_error_01 =. if effect_size==0
+(1,000 real changes made, 1,000 to missing)
+
+. replace s_error_001 =. if effect_size==0
+(1,000 real changes made, 1,000 to missing)
+</pre>
+<p>Make magnitude error</p>
+<pre class='stata'>. gen m_error = abs(coef/effect_size)
+(1,000 missing values generated)
+
+. gen m_error_10 = m_error
+(1,000 missing values generated)
+
+. replace m_error_10 = . if power_10==0
+(6,628 real changes made, 6,628 to missing)
+
+. gen m_error_05 = m_error
+(1,000 missing values generated)
+
+. replace m_error_05 = . if power_05==0
+(8,030 real changes made, 8,030 to missing)
+
+. gen m_error_01 = m_error
+(1,000 missing values generated)
+
+. replace m_error_01 = . if power_01==0
+(10,820 real changes made, 10,820 to missing)
+
+. gen m_error_001 = m_error
+(1,000 missing values generated)
+
+. replace m_error_001 = . if power_001==0
+(14,130 real changes made, 14,130 to missing)
+</pre>
+<p>Generate Beliveabilitiy</p>
+<pre class='stata'>. gen believe_10 = 0 
+
+. replace  believe_10 = 1 if power_10 ==1 &amp; s_error_10==0 &amp; m_error_10&lt;=2
+(11,081 real changes made)
+</pre>
+<pre class='stata'>. gen believe_05 = 0 
+
+. replace  believe_05 = 1 if power_05 ==1 &amp; s_error_05==0 &amp; m_error_05&lt;=2
+(9,934 real changes made)
+</pre>
+<pre class='stata'>. gen believe_01 = 0 
+
+. replace  believe_01 = 1 if power_01 ==1 &amp; s_error_01==0 &amp; m_error_01&lt;=2
+(7,502 real changes made)
+</pre>
+<pre class='stata'>. gen believe_001 = 0 
+
+. replace  believe_001 = 1 if power_001 ==1 &amp; s_error_001==0 &amp; m_error_001&lt;=2
+(4,519 real changes made)
+</pre>
+<p>Collapse by effect size to calculate power, % sign error, average magnitude error and % believable</p>
+<pre class='stata'>. collapse (sum) count *power_* *s_error_* *believe_* (mean) *m_error_*, by(ef
+> fect_size)
+</pre>
+<p>Generate sign error ratio, rather than raw count</p>
+<pre class='stata'>. replace s_error_10 = (s_error_10/power_10)*100
+(5 real changes made)
+
+. replace s_error_05 = (s_error_05/power_05)*100
+(4 real changes made)
+
+. replace s_error_01 = (s_error_01/power_01)*100
+(2 real changes made)
+
+. replace s_error_001 = (s_error_001/power_001)*100
+(0 real changes made)
+</pre>
+<pre class='stata'>. replace s_error_10 = . if effect_size==0
+(1 real change made, 1 to missing)
+
+. replace s_error_05 = . if effect_size==0
+(1 real change made, 1 to missing)
+
+. replace s_error_01 = . if effect_size==0
+(1 real change made, 1 to missing)
+
+. replace s_error_001 = . if effect_size==0
+(1 real change made, 1 to missing)
+</pre>
+<p>Make power and believability out of 100</p>
+<pre class='stata'>. ds *power* *believe_*
+power_10     power_01     believe_10   believe_01
+power_05     power_001    believe_05   believe_001
+
+. foreach x in `r(varlist)' {
+  2.     replace `x' = (`x'/count)*100
+  3. }
+(20 real changes made)
+(20 real changes made)
+(20 real changes made)
+(20 real changes made)
+(16 real changes made)
+(15 real changes made)
+(14 real changes made)
+(13 real changes made)
+</pre>
+<p>Make effect size 0-100</p>
+<pre class='stata'>. replace effect_size=effect_size*100
+(19 real changes made)
+</pre>
+<h1 id="plot-power-curves">Plot power curves</h1>
+<p>First determine closest point where the power_05 hits 80%</p>
+<pre class='stata'>. gen distance_from_80 = (power_05-80)^2
+
+. sort distance_from_80
+
+. sum effect_size in 1
+
+    Variable │        Obs        Mean    Std. Dev.       Min        Max
+─────────────┼─────────────────────────────────────────────────────────
+ effect_size │          1           3           .          3          3
+
+. local mde=`r(mean)'
+</pre>
+<p>Add label to graph with this MDE</p>
+<pre class='stata'>. capture drop mde_label
+
+. gen mde_label = ""
+(20 missing values generated)
+
+. set obs `=_N+1'
+number of observations (_N) was 20, now 21
+
+. replace mde_label = "MDE" in `=_N'
+variable mde_label was str1 now str3
+(1 real change made)
+
+. replace effect_size = `mde' in `=_N'
+(1 real change made)
+</pre>
+<pre class='stata'>. capture drop full_power
+
+. gen full_power = 102.5
+</pre>
+<p>Plot power curve</p>
+<pre class='stata'>. sort effect_size
+
+. twoway connected power_10 effect_size ,  lpattern("l") color(sea) msymbol(no
+> ne) mlabcolor(sea) mlabel("") mlabsize(3) mlabpos(11) ///
+>     || connected  power_05 effect_size ,  lpattern(".._") color(turquoise) m
+> symbol(none) mlabcolor(turquoise) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected  power_01 effect_size , lpattern("_") color(vermillion) msy
+> mbol(none) mlabcolor(vermillion) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected  power_001  effect_size ,  lpattern("l") color(black) msymb
+> ol(none) mlabcolor(black) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || scatter full_power effect_size , mlabel(mde_label) msymbol(none) mlab
+> pos(12) mlabsize(3.5) ///
+>         xline(`mde', lpattern(dash) lcolor(gs3) lwidth(.5) noextend) ///
+>         ytitle("Percent with Significant Treatment Effect", size(4)) ///
+>         xtitle("Imposed Population Effect (Percent Reduction in Non-Elderly 
+> Mortality)", size(4) ) ///
+>         xscale(r(0 5)) ///
+>         xlabel(, nogrid labsize(4)) ///
+>         ylabel(0 "0%" 20 "20%"  40 "40%" 60 "60%" 80 "80%" 100 "100%",gmax n
+> oticks labsize(4)) ///
+>         legend(order( 1 2 3 4) pos(6) col(4) ///
+>             label(1 "{&amp;alpha} =.10") label(2 "{&amp;alpha} =.05") ///
+>             label(3 "{&amp;alpha} =.01") label(4 "{&amp;alpha} =.001") size(4)) ///
+>             title("Simulated Power Analysis; DD, 0-64, All Cause Mortality" 
+> " ", size(4)) 
+</pre>
+<pre class='stata'>.     graph export "$dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/scripts/markdown/simulated_power_analysis.png",  replace width
+> (800)
+(file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_publi
+> c_data_example/scripts/markdown/simulated_power_analysis.png written in PNG 
+> format)
+</pre>
+<figure>
+<img src="simulated_power_analysis.png" alt="Simulated Power Analysis; DD, 0-64, All Cause Mortality" style="width:100.0%" /><figcaption>Simulated Power Analysis; DD, 0-64, All Cause Mortality</figcaption>
+</figure>
+<p>Plot sign error</p>
+<pre class='stata'>. sum s_error_10
+
+    Variable │        Obs        Mean    Std. Dev.       Min        Max
+─────────────┼─────────────────────────────────────────────────────────
+  s_error_10 │         19     2.88117    7.122931          0   27.21893
+
+. gen  s_error_label= 62.5
+
+. twoway connected s_error_10 effect_size ,  lpattern("l") color(sea) msymbol(
+> none) mlabcolor(sea) mlabel("") mlabsize(3) mlabpos(11) ///
+>     || connected s_error_05 effect_size  ,  lpattern(".._") color(turquoise)
+>  msymbol(none) mlabcolor(turquoise) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected s_error_01 effect_size  , lpattern("_") color(vermillion) m
+> symbol(none) mlabcolor(vermillion) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected s_error_001  effect_size  ,  lpattern("l") color(black) msy
+> mbol(none) mlabcolor(black) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || scatter s_error_label effect_size  , mlabel(mde_label) msymbol(none) 
+>  mlabpos(12) mlabsize(4)  ///
+>     ytitle("Percent", size(4)) ///
+>         xtitle("Imposed Population Effect (Percent Reduction in Non-Elderly 
+> Mortality)", size(4)) ///
+>         legend(size(4) order(1 2 3 4) pos(6) col(4) label(1 "{&amp;alpha} =.10")
+>  label(2 "{&amp;alpha} =.05") label(3 "{&amp;alpha} =.01") label(4 "{&amp;alpha} =.001")
+> ) ///
+>         xscale(r(0 5)) ///
+>         xline(`mde', lpattern(dash) lcolor(grey) noextend) ///
+>         xlabel( , nogrid labsize(4)) ///
+>         ylabel(0 "0%" 20 "20%"  40 "40%" 60 "60%",gmax noticks labsize(4)) /
+> //
+>         title("Likelihood of Significant Coefficient Having Wrong Sign" "DD,
+>  0-64, All Cause Mortality" " ", size(4))
+(note:  named style grey not found in class color, default attributes used)
+</pre>
+<pre class='stata'>.     graph export "$dropbox/health_insurance_and_mortality/state_level_public
+> _data_example/scripts/markdown/s_error.png", replace width(800)
+(file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_publi
+> c_data_example/scripts/markdown/s_error.png written in PNG format)
+</pre>
+<figure>
+<img src="s_error.png" alt="Likelihood of Significant Coefficient Having Wrong Sign DD, 0-64, All Cause Mortality" style="width:100.0%" /><figcaption>Likelihood of Significant Coefficient Having Wrong Sign DD, 0-64, All Cause Mortality</figcaption>
+</figure>
+<p>Plot magnitude error</p>
+<pre class='stata'>. sum m_error_001
+
+    Variable │        Obs        Mean    Std. Dev.       Min        Max
+─────────────┼─────────────────────────────────────────────────────────
+ m_error_001 │         19    2.851967    2.875496   1.114921   13.03762
+
+. gen  height= `r(max)'*1.05
+
+. twoway connected m_error_10 effect_size ,  lpattern("l") color(sea) msymbol(
+> none) mlabcolor(sea) mlabel("") mlabsize(3) mlabpos(11) ///
+>     || connected m_error_05 effect_size ,  lpattern(".._") color(turquoise) 
+> msymbol(none) mlabcolor(turquoise) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected m_error_01 effect_size , lpattern("_") color(vermillion) ms
+> ymbol(none) mlabcolor(vermillion) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected m_error_001  effect_size ,  lpattern("l") color(black) msym
+> bol(none) mlabcolor(black) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || scatter height effect_size , mlabel(mde_label) msymbol(none)  mlabpos
+> (12) mlabsize(4)  ///
+>     ytitle("Mean abs(sig coef/imposed effect)", size(4)) ///
+>         xtitle("Imposed Population Effect (Percent Reduction in Non-Elderly 
+> Mortality)", size(4)) ///
+>         legend(size(4) order(1 2 3 4) pos(6) col(4) label(1 "{&amp;alpha} =.10")
+>  label(2 "{&amp;alpha} =.05") label(3 "{&amp;alpha} =.01") label(4 "{&amp;alpha} =.001")
+> ) ///
+>         xscale(r(0 5)) ///
+>         xline(`mde', lpattern(dash) lcolor(grey) noextend) ///
+>         xlabel(, nogrid labsize(4)) ///
+>         ylabel(, gmax noticks labsize(4)) ///
+>         title("Exaggeration Ratio; DD, 0-64, All Cause Mortality"  " ", size
+> (4))
+(note:  named style grey not found in class color, default attributes used)
+</pre>
+<pre class='stata'>.         graph export "$dropbox/health_insurance_and_mortality/state_level_pu
+> blic_data_example/scripts/markdown/m_error.png", replace width(800)
+(file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_publi
+> c_data_example/scripts/markdown/m_error.png written in PNG format)
+</pre>
+<figure>
+<img src="m_error.png" alt="Exaggeration Ratio; DD, 0-64, All Cause Mortality" style="width:100.0%" /><figcaption>Exaggeration Ratio; DD, 0-64, All Cause Mortality</figcaption>
+</figure>
+<p>Plot believability</p>
+<pre class='stata'>. twoway connected believe_10 effect_size ,  lpattern("l") color(sea) msymbol(
+> none) mlabcolor(sea) mlabel("") mlabsize(3) mlabpos(11) ///
+>     || connected believe_05 effect_size ,  lpattern(".._") color(turquoise) 
+> msymbol(none) mlabcolor(turquoise) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected believe_01 effect_size , lpattern("_") color(vermillion) ms
+> ymbol(none) mlabcolor(vermillion) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || connected believe_001  effect_size ,  lpattern("l") color(black) msym
+> bol(none) mlabcolor(black) mlabel("") mlabsize(3) mlabpos(3) ///
+>     || scatter full_power effect_size , mlabel(mde_label) msymbol(none) mlab
+> pos(12) mlabsize(4)  ///
+>     xtitle("Imposed Population Effect (Percent Reduction in Non-Elderly Mort
+> ality)", size(4)) ///
+>         legend(size(4) order(1 2 3 4) pos(6) col(4) label(1 "{&amp;alpha} =.10")
+>  label(2 "{&amp;alpha} =.05") label(3 "{&amp;alpha} =.01") label(4 "{&amp;alpha} =.001")
+> ) ///
+>                 ytitle("Probability", size(4)) ///
+>         xscale(r(0 5)) ///
+>         xline(`mde', lpattern(dash) lcolor(grey) noextend) ///
+>         xlabel(, nogrid labsize(4)) ///
+>         ylabel(0 "0%" 20 "20%"  40 "40%" 60 "60%" 80 "80%" 100 "100%",gmax n
+> oticks labsize(4)) ///
+>         title("Likelihood of believable coefficient; DD, 0-64, All Cause Mor
+> tality" " ", size(4)) 
+(note:  named style grey not found in class color, default attributes used)
+</pre>
+<pre class='stata'>.     graph export  "$dropbox/health_insurance_and_mortality/state_level_publi
+> c_data_example/scripts/markdown/believable.png", replace width(800)
+(file /Users/hollinal/Dropbox/health_insurance_and_mortality/state_level_publi
+> c_data_example/scripts/markdown/believable.png written in PNG format)
+</pre>
+<figure>
+<img src="believable.png" alt="Likelihood of believable coefficient; DD, 0-64, All Cause Mortality" style="width:100.0%" /><figcaption>Likelihood of believable coefficient; DD, 0-64, All Cause Mortality</figcaption>
+</figure>
+<h1 id="conclusion">Conclusion</h1>
+<p>Using this simple example, we can see that for this simple research design the minimum mortality reduction that is believable, well-powered, and significant at the 5% level is around 3%. Changing the research design (e.g. adding control variables, shifting to the county-level, changing the cause of death) would certainly impact power.</p>
+<p>This simple research design is a DiD comparing 23 random treated states to 18 random control states. In this simple design we used 5 years of pre-expansion data and 3 years of post-expansion data. Both state and year fixed-effects were included. Regressions were weighted by state-population and standard errors were clustered at the state-level. The dependent variable was the natural log of the all-cause non-elderly mortality rate per 100,000.</p>
+</body>
+</html>
